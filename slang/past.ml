@@ -20,6 +20,10 @@ type oper = ADD | MUL | DIV | SUB | LT | AND | OR | EQ | EQB | EQI
 
 type unary_oper = NEG | NOT 
 
+type nested_binding =
+   | BindingUnit of var * type_expr
+   | BindingPair of nested_binding * nested_binding
+
 type expr = 
        | Unit of loc  
        | What of loc 
@@ -43,12 +47,17 @@ type expr =
        | Assign of loc * expr * expr
 
        | Lambda of loc * lambda 
+       | TupleLambda of loc * tuple_lambda 
        | App of loc * expr * expr
        | Let of loc * var * type_expr * expr * expr
+       | LetTuple of loc * nested_binding * expr * expr
        | LetFun of loc * var * lambda * type_expr * expr
+       | LetTupleFun of loc * var * tuple_lambda * type_expr * expr
        | LetRecFun of loc * var * lambda * type_expr * expr
+       | LetRecTupleFun of loc * var * tuple_lambda * type_expr * expr
 
 and lambda = var * type_expr * expr 
+and tuple_lambda = nested_binding * expr
 
 let  loc_of_expr = function 
     | Unit loc                      -> loc 
@@ -70,16 +79,30 @@ let  loc_of_expr = function
     | Deref(loc, _)                 -> loc 
     | Assign(loc, _, _)             -> loc 
     | While(loc, _, _)              -> loc 
-    | Lambda(loc, _)                -> loc 
+    | Lambda(loc, _)                -> loc
+    | TupleLambda(loc, _)           -> loc
     | App(loc, _, _)                -> loc 
     | Let(loc, _, _, _, _)          -> loc 
+    | LetTuple(loc, _, _, _)        -> loc 
     | LetFun(loc, _, _, _, _)       -> loc 
+    | LetTupleFun(loc, _, _, _, _)  -> loc 
     | LetRecFun(loc, _, _, _, _)    -> loc 
+    | LetRecTupleFun(loc, _, _, _, _)  -> loc 
 
 
 let string_of_loc loc = 
     "line " ^ (string_of_int (loc.Lexing.pos_lnum)) ^ ", " ^ 
     "position " ^ (string_of_int ((loc.Lexing.pos_cnum - loc.Lexing.pos_bol) + 1))
+
+let rec type_of_nested_binding = function
+    | BindingPair(l, r) -> TEproduct((type_of_nested_binding l), (type_of_nested_binding r))
+    |  BindingUnit(_, t) -> t
+
+let vars_of_nested_binding nb = 
+  let rec vars_of_nested_binding acc = function
+    |  BindingPair(l, r) -> vars_of_nested_binding (vars_of_nested_binding acc l) r
+    |  BindingUnit(x, t) -> (x, t) :: acc
+  in vars_of_nested_binding [] nb
 
 open Format
 
@@ -114,6 +137,14 @@ let pp_bop = function
   | EQB   -> "eqb" 
   | AND   -> "&&" 
   | OR   -> "||" 
+
+let pp_nested_binding ppf nb =
+  let rec pp_nested_binding_impl = function
+      | BindingPair(l, r) ->
+        "(" ^ (pp_nested_binding_impl l) ^ "," ^ (pp_nested_binding_impl r) ^ ")"
+      | BindingUnit(x, t) ->
+        x ^ "," ^ (pp_type t)
+  in fprintf ppf "%s" (pp_nested_binding_impl nb)
 
 let string_of_oper = pp_bop 
 let string_of_unary_oper = pp_uop 
@@ -152,15 +183,26 @@ let rec pp_expr ppf = function
     | Assign(_, e1, e2)   -> fprintf ppf "(%a := %a)" pp_expr e1 pp_expr e2 
     | Lambda(_, (x, t, e)) -> 
          fprintf ppf "(fun %a : %a -> %a)" fstring x pp_type t  pp_expr e
+    | TupleLambda(_, (nb, e)) -> 
+        fprintf ppf "(fun %a -> %a)" pp_nested_binding nb pp_expr e
     | App(_, e1, e2)      -> fprintf ppf "%a %a" pp_expr e1 pp_expr e2
     | Let(_, x, t, e1, e2) -> 
          fprintf ppf "@[<2>let %a : %a = %a in %a end@]" fstring x pp_type t pp_expr e1 pp_expr e2
+    | LetTuple(_, nb, e1, e2) -> 
+          fprintf ppf "@[<2>let %a = %a in %a end@]" pp_nested_binding nb pp_expr e1 pp_expr e2
     | LetFun(_, f, (x, t1, e1), t2, e2)     -> 
          fprintf ppf "@[let %a(%a : %a) : %a =@ %a @ in %a @ end@]" 
                      fstring f fstring x  pp_type t1 pp_type t2 pp_expr e1 pp_expr e2
+    | LetTupleFun(_, f, (nb, e1), t2, e2)     -> 
+          fprintf ppf "@[let %a %a : %a =@ %a @ in %a @ end@]" 
+                      fstring f pp_nested_binding nb pp_type t2 pp_expr e1 pp_expr e2
     | LetRecFun(_, f, (x, t1, e1), t2, e2)     -> 
          fprintf ppf "@[letrec %a(%a : %a) : %a =@ %a @ in %a @ end@]" 
                      fstring f fstring x  pp_type t1 pp_type t2 pp_expr e1 pp_expr e2
+    | LetRecTupleFun(_, f, (nb, e1), t2, e2)     -> 
+    fprintf ppf "@[letrec %a %a : %a =@ %a @ in %a @ end@]" 
+                fstring f pp_nested_binding nb pp_type t2 pp_expr e1 pp_expr e2
+      
 
 let print_expr e = 
     let _ = pp_expr std_formatter e
@@ -205,6 +247,12 @@ let rec string_of_type = function
   | TEproduct(t1, t2) -> mk_con "TEproduct" [string_of_type t1; string_of_type t2] 
   | TEunion(t1, t2)   -> mk_con "TEunion" [string_of_type t1; string_of_type t2] 
 
+let mk_nested_binding_con con nb = 
+  let rec mk_nested_binding_con_impl = function
+    | BindingUnit(x, t) -> "(" ^ x ^ "," ^ (string_of_type t) ^ ")"
+    | BindingPair(l, r) -> "(" ^ (mk_nested_binding_con_impl l) ^ "," ^ (mk_nested_binding_con_impl r) ^ ")"
+  in con ^ (mk_nested_binding_con_impl nb)
+
 let rec string_of_expr = function 
     | Unit _              -> "Unit" 
     | What _              -> "What" 
@@ -225,20 +273,34 @@ let rec string_of_expr = function
     | Deref(_, e)         -> mk_con "Deref" [string_of_expr e] 
     | Assign(_, e1, e2)   -> mk_con "Assign" [string_of_expr e1; string_of_expr e2]
     | Lambda(_, (x, t, e)) -> mk_con "Lambda" [x; string_of_type t; string_of_expr e]
+    | TupleLambda(_, (nb, e)) -> mk_con "TupleLambda" [mk_nested_binding_con "" nb; string_of_expr e]
     | App(_, e1, e2)      -> mk_con "App" [string_of_expr e1; string_of_expr e2]
     | Let(_, x, t, e1, e2) -> mk_con "Let" [x; string_of_type t; string_of_expr e1; string_of_expr e2]
+    | LetTuple(_, nb, e1, e2) -> mk_con "Let" [mk_nested_binding_con "" nb; string_of_expr e1; string_of_expr e2]
     | LetFun(_, f, (x, t1, e1), t2, e2)      -> 
           mk_con "LetFun" [
              f; 
              mk_con "" [x; string_of_type t1; string_of_expr e1]; 
              string_of_type t2; 
              string_of_expr e2]
+    | LetTupleFun(_, f, (nb, e1), t2, e2)      -> 
+          mk_con "LetTupleFun" [
+              f; 
+              mk_con "" [mk_nested_binding_con "" nb; string_of_expr e1]; 
+              string_of_type t2; 
+              string_of_expr e2]
     | LetRecFun(_, f, (x, t1, e1), t2, e2)   -> 
           mk_con "LetRecFun" [
              f; 
              mk_con "" [x; string_of_type t1; string_of_expr e1]; 
              string_of_type t2; 
              string_of_expr e2]
+    | LetRecTupleFun(_, f, (nb, e1), t2, e2)      -> 
+          mk_con "LetRecTupleFun" [
+              f; 
+              mk_con "" [mk_nested_binding_con "" nb; string_of_expr e1]; 
+              string_of_type t2; 
+              string_of_expr e2]
     | Case(_, e, (x1, t1, e1), (x2, _, e2)) -> 
           mk_con "Case" [
 	     string_of_expr e; 

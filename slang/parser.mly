@@ -31,6 +31,8 @@ let get_loc = Parsing.symbol_start_pos
 %type <Past.expr> expr 
 %type <Past.expr list> exprlist
 %type <Past.expr> start
+%type <Past.nested_binding> nestedbinding
+%type <Past.nested_binding> nestedbinding_inner
 
 %%
 
@@ -80,9 +82,14 @@ expr:
 | INR texpr expr %prec UMINUS        { Past.Inr(get_loc(), $2, $3) }
 | FUN LPAREN IDENT COLON texpr RPAREN ARROW expr END 
                                      { Past.Lambda(get_loc(), ($3, $5, $8)) } 
+| FUN nestedbinding ARROW expr END 
+                                     { Past.TupleLambda(get_loc(), ($2, $4)) } 
 | LET IDENT COLON texpr EQUAL expr IN expr END           { Past.Let (get_loc(), $2, $4, $6, $8) }
+| LET nestedbinding EQUAL expr IN expr END           { Past.LetTuple (get_loc(), $2, $4, $6) }
 | LET IDENT LPAREN IDENT COLON texpr RPAREN COLON texpr EQUAL expr IN expr END 
                                      { Past.LetFun (get_loc(), $2, ($4, $6, $11), $9, $13) }
+| LET IDENT nestedbinding COLON texpr EQUAL expr IN expr END 
+                                     { Past.LetTupleFun (get_loc(), $2, ($3, $7), $5, $9) }
 | CASE expr OF 
       INL LPAREN IDENT COLON texpr RPAREN ARROW expr 
   BAR INR LPAREN IDENT COLON texpr RPAREN  ARROW expr 
@@ -104,6 +111,12 @@ texpr:
 | texpr REF                          { Past.TEref $1 } 
 | LPAREN texpr RPAREN                { $2 } 
 
+nestedbinding:
+|   LPAREN nestedbinding_inner COMMA nestedbinding_inner RPAREN     { Past.BindingPair($2, $4) }
+
+nestedbinding_inner:    
+|   IDENT COLON texpr                                   { Past.BindingUnit($1, $3) }
+|   LPAREN nestedbinding_inner COMMA nestedbinding_inner RPAREN     { Past.BindingPair($2, $4) }
 
 
 

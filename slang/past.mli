@@ -18,6 +18,10 @@ type oper = ADD | MUL | DIV | SUB | LT | AND | OR | EQ | EQB | EQI
 
 type unary_oper = NEG | NOT 
 
+type nested_binding =
+   | BindingUnit of var * type_expr
+   | BindingPair of nested_binding * nested_binding
+
 type expr = 
        | Unit of loc  
        | What of loc 
@@ -41,13 +45,20 @@ type expr =
        | Assign of loc * expr * expr
 
        | Lambda of loc * lambda 
+       | TupleLambda of loc * tuple_lambda 
        | App of loc * expr * expr 
        | Let of loc * var * type_expr * expr * expr
+       | LetTuple of loc * nested_binding * expr * expr
        | LetFun of loc * var * lambda * type_expr * expr
+       | LetTupleFun of loc * var * tuple_lambda * type_expr * expr
        | LetRecFun of loc * var * lambda * type_expr * expr
+       | LetRecTupleFun of loc * var * tuple_lambda * type_expr * expr
 
 and lambda = var * type_expr * expr 
+and tuple_lambda = nested_binding * expr
 val loc_of_expr : expr -> loc 
+val type_of_nested_binding : nested_binding -> type_expr
+val vars_of_nested_binding : nested_binding -> (var * type_expr) list
 val string_of_loc : loc -> string 
 
 (* printing *) 

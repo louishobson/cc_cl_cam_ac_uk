@@ -11,6 +11,11 @@
 
 *) 
 
+type translate_nested_binding_cont = 
+     | EXPAND of Past.nested_binding * string
+     | EXPAND_LEFT of Past.nested_binding * string
+     | EXPAND_RIGHT of Past.nested_binding * string
+
 let translate_uop = function 
   | Past.NEG -> Ast.NEG 
   | Past.NOT -> Ast.NOT 
@@ -45,6 +50,7 @@ let rec translate_expr = function
     | Past.Case(l, e, l1, l2) ->
          Ast.Case(l, translate_expr e, translate_lambda l l1, translate_lambda l l2)
     | Past.Lambda(l, lam)      -> Ast.Lambda(translate_lambda l lam)
+    | Past.TupleLambda(l, tlam)      -> Ast.Lambda(translate_tuple_lambda l tlam)
     | Past.App(l, e1, e2)    -> Ast.App(l, translate_expr e1, translate_expr e2)
     (* 
        Replace "let" with abstraction and application. For example, translate 
@@ -52,10 +58,16 @@ let rec translate_expr = function
     *) 
     | Past.Let(l, x, _, e1, e2) ->
          Ast.App(l, Ast.Lambda(l, x, translate_expr e2), translate_expr e1)
+     | Past.LetTuple(l, nb, e1, e2) ->
+          Ast.App(l, Ast.Lambda(translate_tuple_lambda l (nb, e2)), translate_expr e1)
     | Past.LetFun(l, f, lam, _, e)     ->
          Ast.LetFun(l, f, translate_lambda l lam, translate_expr e)
+     | Past.LetTupleFun(l, f, tup_lam, _, e)     ->
+          Ast.LetFun(l, f, translate_tuple_lambda l tup_lam, translate_expr e)
     | Past.LetRecFun(l, f, lam, _, e)     ->
          Ast.LetRecFun(l, f, translate_lambda l lam, translate_expr e)
+     | Past.LetRecTupleFun(l, f, tup_lam, _, e)     ->
+          Ast.LetRecFun(l, f, translate_tuple_lambda l tup_lam, translate_expr e)
 
     | Past.Seq(l, el) -> Ast.Seq(l, List.map translate_expr el)
     | Past.While(l, e1, e2) -> Ast.While(l, translate_expr e1, translate_expr e2)
@@ -64,3 +76,43 @@ let rec translate_expr = function
     | Past.Assign(l, e1, e2) -> Ast.Assign(l, translate_expr e1, translate_expr e2)
 
 and translate_lambda l (x, _, body) = (l, x, translate_expr body)
+
+(* This function takes a Past.TupleLambda and converts it to a an Ast.Lambda *)
+and translate_tuple_lambda l (nb, body) = 
+     (* A reference to an int which is incremented to create unique variables *)
+     let varnum = ref 0 in
+     (* Translates a nested binding into a series of Past.Let expressions
+      * nbs is an array of 'expansions' yet to be performed.
+      *)
+     let rec translate_nested_binding ( nbs : translate_nested_binding_cont list ) = match nbs with
+          | EXPAND(Past.BindingPair(nb_l, nb_r), varname) :: nbs ->
+               translate_nested_binding (EXPAND_LEFT(nb_l, varname) :: EXPAND_RIGHT(nb_r, varname) :: nbs)
+
+          | EXPAND(Past.BindingUnit(x, t), varname) :: nbs ->
+               Past.Let(l, x, t, Past.Var(l, varname),
+                    translate_nested_binding nbs)
+
+          | EXPAND_LEFT(Past.BindingPair(nb_l, nb_r) as nb, varname) :: nbs -> 
+               let new_varname = (varnum := !varnum + 1; "__nb_" ^ (string_of_int !varnum)) in
+               Past.Let(l, new_varname, Past.type_of_nested_binding nb, Past.Fst(l, Past.Var(l, varname)),
+                    (translate_nested_binding (EXPAND(nb, new_varname) :: nbs)))
+
+          | EXPAND_RIGHT(Past.BindingPair(nb_l, nb_r) as nb, varname) :: nbs -> 
+               let new_varname = (varnum := !varnum + 1; "__nb_" ^ (string_of_int !varnum)) in
+               Past.Let(l, new_varname, Past.type_of_nested_binding nb, Past.Snd(l, Past.Var(l, varname)),
+                    (translate_nested_binding (EXPAND(nb, new_varname) :: nbs)))
+
+          | EXPAND_LEFT(Past.BindingUnit(x, t), varname) :: nbs -> 
+               Past.Let(l, x, t, Past.Fst(l, Past.Var(l, varname)),
+                    translate_nested_binding nbs)
+                    
+          | EXPAND_RIGHT(Past.BindingUnit(x, t), varname) :: nbs -> 
+               Past.Let(l, x, t, Past.Snd(l, Past.Var(l, varname)),
+                    translate_nested_binding nbs)
+
+          | [] -> body
+     in
+     (* Convert the Past.TupleLambda to a series of Past.Let bindings,
+      * then call translate_expr to convert the Past.Let bindings to Ast elements
+      *)
+     (l, "__nb_0", translate_expr (translate_nested_binding [EXPAND(nb, "__nb_0")]))

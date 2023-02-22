@@ -45,13 +45,22 @@ let make_pair loc (e1, t1) (e2, t2)  = (Pair(loc, e1, e2), TEproduct(t1, t2))
 let make_inl loc t2 (e, t1)          = (Inl(loc, t2, e), TEunion(t1, t2))
 let make_inr loc t1 (e, t2)          = (Inr(loc, t1, e), TEunion(t1, t2))
 let make_lambda loc x t1 (e, t2)     = (Lambda(loc, (x, t1, e)), TEarrow(t1, t2))
+let make_tuple_lambda loc nb (e, t2)     = (TupleLambda(loc, (nb, e)), TEarrow(type_of_nested_binding nb, t2))
 let make_ref loc (e, t)              = (Ref(loc, e), TEref t)
 let make_letfun loc f x t1 (body, t2) (e, t)    = (LetFun(loc, f, (x, t1, body), t2, e), t)
+let make_lettuplefun loc f nb (body, t2) (e, t)    = (LetTupleFun(loc, f, (nb, body), t2, e), t)
 let make_letrecfun loc f x t1 (body, t2) (e, t) = (LetRecFun(loc, f, (x, t1, body), t2, e), t)
+let make_letrectuplefun loc f nb (body, t2) (e, t)    = (LetRecTupleFun(loc, f, (nb, body), t2, e), t)
 
 let make_let loc x t (e1, t1) (e2, t2)  = 
     if match_types (t, t1) 
     then (Let(loc, x, t, e1, e2), t2)
+    else report_types_not_equal loc t t1 
+
+let make_lettuple loc nb (e1, t1) (e2, t2)  = 
+    let t = type_of_nested_binding nb in
+    if match_types (t, t1) 
+    then (LetTuple(loc, nb, e1, e2), t2)
     else report_types_not_equal loc t t1 
 
 let make_if loc (e1, t1) (e2, t2) (e3, t3) = 
@@ -65,7 +74,7 @@ let make_if loc (e1, t1) (e2, t2) (e3, t3) =
 let make_app loc (e1, t1) (e2, t2) = 
     match t1 with 
     | TEarrow(t3, t4) -> 
-         if match_types(t2, t3) 
+         if match_types(t2, t3)
          then (App(loc, e1, e2), t4)
          else report_expecting e2 (string_of_type t3) t2
     | _ -> report_expecting e1 "function type" t1
@@ -170,8 +179,10 @@ let rec  infer env e =
     | Case(loc, e, (x1, t1, e1), (x2, t2, e2)) ->  
             make_case loc t1 t2 x1 x2 (infer env e) (infer ((x1, t1) :: env) e1) (infer ((x2, t2) :: env) e2)
     | Lambda (loc, (x, t, e)) -> make_lambda loc x t (infer ((x, t) :: env) e)
+    | TupleLambda (loc, (nb, e)) -> make_tuple_lambda loc nb (infer ((vars_of_nested_binding nb) @ env) e)
     | App(loc, e1, e2)        -> make_app loc (infer env e1) (infer env e2)
     | Let(loc, x, t, e1, e2)  -> make_let loc x t (infer env e1) (infer ((x, t) :: env) e2) 
+    | LetTuple(loc, nb, e1, e2)  -> make_lettuple loc nb (infer env e1) (infer ((vars_of_nested_binding nb) @ env) e2) 
     | LetFun(loc, f, (x, t1, body), t2, e) -> 
       let env1 = (f, TEarrow(t1, t2)) :: env in 
       let p = infer env1 e  in 
@@ -180,7 +191,17 @@ let rec  infer env e =
           with _ -> let env3 = (f, TEarrow(t1, t2)) :: env2 in 
                         make_letrecfun loc f x t1 (infer env3 body) p 
          )
+    | LetTupleFun(loc, f, (nb, body), t2, e) -> 
+        let t1 = type_of_nested_binding nb in
+        let env1 = (f, TEarrow(t1, t2)) :: env in 
+        let p = infer env1 e  in 
+        let env2 = (vars_of_nested_binding nb) @ env in 
+            (try make_lettuplefun loc f nb (infer env2 body) p 
+                with _ -> let env3 = (f, TEarrow(t1, t2)) :: env2 in 
+                            make_letrectuplefun loc f nb (infer env3 body) p 
+            )
     | LetRecFun(_, _, _, _, _)  -> internal_error "LetRecFun found in parsed AST" 
+    | LetRecTupleFun(_, _, _, _, _)  -> internal_error "LetRecTupleFun found in parsed AST" 
 
 and infer_seq loc env el = 
     let rec aux carry = function 

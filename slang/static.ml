@@ -51,7 +51,10 @@ let rec depoly_types = function
     | TEproduct(t1, t2), TEproduct(t3, t4) -> TEproduct(depoly_types(t1, t3), depoly_types(t2, t4))
     | TEunion(t1, t2), TEunion(t3, t4) -> TEunion(depoly_types(t1, t3), depoly_types(t2, t4))
     | TEarrow(t1, t2), TEarrow(t3, t4) -> TEarrow(depoly_types(t1, t3), depoly_types(t2, t4))
-    | t1, t2 -> t1
+    | t1, t2 -> if t1 = t2 then t1 else
+        let t1_str = string_of_type t1 in 
+        let t2_str = string_of_type t2 in 
+            complain ("ERROR, Failed to unify types " ^ t1_str ^ " and " ^ t2_str)
 
 (* may want to make this more interesting someday ... *) 
 let rec match_types = function

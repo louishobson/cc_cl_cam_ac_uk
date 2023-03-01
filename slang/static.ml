@@ -48,18 +48,18 @@ let rec find loc x = function
 let rec depoly_types = function
     | TEpoly, t -> t
     | t, TEpoly -> t
-    | TEproduct(t1, t2), TEproduct(t3, t4) -> TEproduct(depoly_types(t1, t2), depoly_types(t2, t3))
-    | TEunion(t1, t2), TEunion(t3, t4) -> TEunion(depoly_types(t1, t2), depoly_types(t2, t3))
-    | TEarrow(t1, t2), TEarrow(t3, t4) -> TEarrow(depoly_types(t1, t2), depoly_types(t2, t3))
+    | TEproduct(t1, t2), TEproduct(t3, t4) -> TEproduct(depoly_types(t1, t3), depoly_types(t2, t4))
+    | TEunion(t1, t2), TEunion(t3, t4) -> TEunion(depoly_types(t1, t3), depoly_types(t2, t4))
+    | TEarrow(t1, t2), TEarrow(t3, t4) -> TEarrow(depoly_types(t1, t3), depoly_types(t2, t4))
     | t1, t2 -> t1
 
 (* may want to make this more interesting someday ... *) 
 let rec match_types = function
     | TEpoly, _ -> true
     | _, TEpoly -> true
-    | TEproduct(t1, t2), TEproduct(t3, t4) -> match_types(t1, t2) && match_types(t2, t3)
-    | TEunion(t1, t2), TEunion(t3, t4) -> match_types(t1, t2) && match_types(t2, t3)
-    | TEarrow(t1, t2), TEarrow(t3, t4) -> match_types(t1, t2) && match_types(t2, t3)
+    | TEproduct(t1, t2), TEproduct(t3, t4) -> match_types(t1, t3) && match_types(t2, t4)
+    | TEunion(t1, t2), TEunion(t3, t4) -> match_types(t1, t3) && match_types(t2, t4)
+    | TEarrow(t1, t2), TEarrow(t3, t4) -> match_types(t1, t3) && match_types(t2, t4)
     | t1, t2 -> t1 = t2
 
 let make_pair loc (e1, t1) (e2, t2)  = (Pair(loc, e1, e2), TEproduct(t1, t2))

@@ -47,7 +47,10 @@ let rec find loc x = function
 
 
 (* may want to make this more interesting someday ... *) 
-let match_types (t1, t2) = (t1 = t2) 
+let match_types = function
+    | TEPoly, _ -> true
+    | _, TEPoly -> true
+    | t1, t2 -> t1 = t2
 
 let make_pair loc (e1, t1) (e2, t2)  = (Pair(loc, e1, e2), TEproduct(t1, t2))
 let make_inl loc t2 (e, t1)          = (Inl(loc, t2, e), TEunion(t1, t2))
@@ -103,39 +106,40 @@ let make_deref loc (e, t) =
 
 let make_uop loc uop (e, t) = 
     match uop, t with 
-    | NEG, TEint  -> (UnaryOp(loc, uop, e), t) 
-    | NEG, _      -> report_expecting e "integer" t
-    | NOT, TEbool -> (UnaryOp(loc, uop, e), t) 
-    | NOT, _      -> report_expecting e "boolean" t
+    | NEG, (TEint|TEPoly)   -> (UnaryOp(loc, uop, e), TEint) 
+    | NEG, _                -> report_expecting e "integer" t
+    | NOT, (TEbool|TEPoly)  -> (UnaryOp(loc, uop, e), TEbool) 
+    | NOT, _                -> report_expecting e "boolean" t
 
 let make_bop loc bop (e1, t1) (e2, t2) = 
     match bop, t1, t2 with 
-    | LT,  TEint,  TEint  -> (Op(loc, e1, bop, e2), TEbool)
-    | LT,  TEint,  t      -> report_expecting e2 "integer" t
-    | LT,  t,      _      -> report_expecting e1 "integer" t
-    | ADD, TEint,  TEint  -> (Op(loc, e1, bop, e2), t1) 
-    | ADD, TEint,  t      -> report_expecting e2 "integer" t
-    | ADD, t,      _      -> report_expecting e1 "integer" t
-    | SUB, TEint,  TEint  -> (Op(loc, e1, bop, e2), t1) 
-    | SUB, TEint,  t      -> report_expecting e2 "integer" t
-    | SUB, t,      _      -> report_expecting e1 "integer" t
-    | MUL, TEint,  TEint  -> (Op(loc, e1, bop, e2), t1) 
-    | MUL, TEint,  t      -> report_expecting e2 "integer" t
-    | MUL, t,      _      -> report_expecting e1 "integer" t
-    | DIV, TEint,  TEint  -> (Op(loc, e1, bop, e2), t1) 
-    | DIV, TEint,  t      -> report_expecting e2 "integer" t
-    | DIV, t,      _      -> report_expecting e1 "integer" t
-    | OR,  TEbool, TEbool -> (Op(loc, e1, bop, e2), t1) 
-    | OR,  TEbool,  t     -> report_expecting e2 "boolean" t
-    | OR,  t,      _      -> report_expecting e1 "boolean" t
-    | AND, TEbool, TEbool -> (Op(loc, e1, bop, e2), t1) 
-    | AND, TEbool,  t     -> report_expecting e2 "boolean" t
-    | AND, t,      _      -> report_expecting e1 "boolean" t
-    | EQ,  TEbool, TEbool -> (Op(loc, e1, EQB, e2), t1) 
-    | EQ,  TEint,  TEint  -> (Op(loc, e1, EQI, e2), TEbool)  
-    | EQ,  _,      _      -> report_type_mismatch (e1, t1) (e2, t2) 
-    | EQI, _, _           -> internal_error "EQI found in parsed AST"
-    | EQB, _, _           -> internal_error "EQB found in parsed AST"
+    | LT,  (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, bop, e2), TEbool)
+    | LT,  (TEint|TEPoly),  t                 -> report_expecting e2 "integer" t
+    | LT,  t,      _                          -> report_expecting e1 "integer" t
+    | ADD, (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, bop, e2), TEint) 
+    | ADD, (TEint|TEPoly),  t                 -> report_expecting e2 "integer" t
+    | ADD, t,      _                          -> report_expecting e1 "integer" t
+    | SUB, (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, bop, e2), TEint) 
+    | SUB, (TEint|TEPoly),  t                 -> report_expecting e2 "integer" t
+    | SUB, t,      _                          -> report_expecting e1 "integer" t
+    | MUL, (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, bop, e2), TEint) 
+    | MUL, (TEint|TEPoly),  t                 -> report_expecting e2 "integer" t
+    | MUL, t,      _                          -> report_expecting e1 "integer" t
+    | DIV, (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, bop, e2), TEint) 
+    | DIV, (TEint|TEPoly),  t                 -> report_expecting e2 "integer" t
+    | DIV, t,      _                          -> report_expecting e1 "integer" t
+    | OR,  (TEbool|TEPoly), (TEbool|TEPoly)   -> (Op(loc, e1, bop, e2), TEbool) 
+    | OR,  (TEbool|TEPoly),  t                -> report_expecting e2 "boolean" t
+    | OR,  t,      _                          -> report_expecting e1 "boolean" t
+    | AND, (TEbool|TEPoly), (TEbool|TEPoly)   -> (Op(loc, e1, bop, e2), TEbool) 
+    | AND, (TEbool|TEPoly),  t                -> report_expecting e2 "boolean" t
+    | AND, t,      _                          -> report_expecting e1 "boolean" t
+    | EQ,  TEPoly, TEPoly                     -> (Op(loc, e1, EQB, e2), TEPoly) 
+    | EQ,  (TEbool|TEPoly), (TEbool|TEPoly)   -> (Op(loc, e1, EQB, e2), TEbool) 
+    | EQ,  (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, EQI, e2), TEbool)  
+    | EQ,  _,      _                          -> report_type_mismatch (e1, t1) (e2, t2) 
+    | EQI, _, _                               -> internal_error "EQI found in parsed AST"
+    | EQB, _, _                               -> internal_error "EQB found in parsed AST"
 
 let make_while loc (e1, t1) (e2, t2)    = 
     if t1 = TEbool 
@@ -166,7 +170,7 @@ let make_case loc left right x1 x2 (e1, t1) (e2, t2) (e3, t3) =
 let make_raise loc (e, t) catch = match catch with
     | Some ct ->
         if match_types(t, ct) 
-        then (Raise(loc, e), t)
+        then (Raise(loc, e), TEPoly)
         else report_raise_type_mismatch loc t ct 
     | None -> (Raise(loc, e), t)
 

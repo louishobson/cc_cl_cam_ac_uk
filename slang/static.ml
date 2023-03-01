@@ -45,11 +45,21 @@ let rec find loc x = function
   | [] -> complain (x ^ " is not defined at " ^ (string_of_loc loc)) 
   | (y, v) :: rest -> if x = y then v else find loc x rest
 
+let rec depoly_types = function
+    | TEpoly, t -> t
+    | t, TEpoly -> t
+    | TEproduct(t1, t2), TEproduct(t3, t4) -> TEproduct(depoly_types(t1, t2), depoly_types(t2, t3))
+    | TEunion(t1, t2), TEunion(t3, t4) -> TEunion(depoly_types(t1, t2), depoly_types(t2, t3))
+    | TEarrow(t1, t2), TEarrow(t3, t4) -> TEarrow(depoly_types(t1, t2), depoly_types(t2, t3))
+    | t1, t2 -> t1
 
 (* may want to make this more interesting someday ... *) 
-let match_types = function
-    | TEPoly, _ -> true
-    | _, TEPoly -> true
+let rec match_types = function
+    | TEpoly, _ -> true
+    | _, TEpoly -> true
+    | TEproduct(t1, t2), TEproduct(t3, t4) -> match_types(t1, t2) && match_types(t2, t3)
+    | TEunion(t1, t2), TEunion(t3, t4) -> match_types(t1, t2) && match_types(t2, t3)
+    | TEarrow(t1, t2), TEarrow(t3, t4) -> match_types(t1, t2) && match_types(t2, t3)
     | t1, t2 -> t1 = t2
 
 let make_pair loc (e1, t1) (e2, t2)  = (Pair(loc, e1, e2), TEproduct(t1, t2))
@@ -65,7 +75,7 @@ let make_letrectuplefun loc f nb (body, t2) (e, t)    = (LetRecTupleFun(loc, f, 
 
 let make_let loc x t (e1, t1) (e2, t2)  = 
     if match_types (t, t1) 
-    then (Let(loc, x, t, e1, e2), t2)
+    then (Let(loc, x, depoly_types(t, t1), e1, e2), t2)
     else report_types_not_equal loc t t1 
 
 let make_lettuple loc nb (e1, t1) (e2, t2)  = 
@@ -76,9 +86,9 @@ let make_lettuple loc nb (e1, t1) (e2, t2)  =
 
 let make_if loc (e1, t1) (e2, t2) (e3, t3) = 
      match t1 with 
-     | TEbool -> 
+     | TEbool | TEpoly -> 
           if match_types (t2, t3) 
-          then (If(loc, e1, e2, e3), t2) 
+          then (If(loc, e1, e2, e3), depoly_types(t2, t3)) 
           else report_type_mismatch (e2, t2) (e3, t3) 
       | ty -> report_expecting e1 "boolean" ty 
 
@@ -88,62 +98,67 @@ let make_app loc (e1, t1) (e2, t2) =
          if match_types(t2, t3)
          then (App(loc, e1, e2), t4)
          else report_expecting e2 (string_of_type t3) t2
+    | TEpoly ->
+        (App(loc, e1, e2), TEpoly)
     | _ -> report_expecting e1 "function type" t1
 
 let make_fst loc = function 
   | (e, TEproduct(t, _)) -> (Fst(loc, e), t) 
+  | (e, TEpoly) -> (Fst(loc, e), TEpoly) 
   | (e, t) -> report_expecting e "product" t
 
 let make_snd loc = function 
   | (e, TEproduct(_, t)) -> (Snd(loc, e), t) 
+  | (e, TEpoly) -> (Snd(loc, e), TEpoly) 
   | (e, t) -> report_expecting e "product" t
 
 
 let make_deref loc (e, t) = 
     match t with 
     | TEref t' -> (Deref(loc, e), t') 
+    | TEpoly -> (Deref(loc, e), TEpoly) 
     | _ -> report_expecting e "ref type" t
 
 let make_uop loc uop (e, t) = 
     match uop, t with 
-    | NEG, (TEint|TEPoly)   -> (UnaryOp(loc, uop, e), TEint) 
+    | NEG, (TEint|TEpoly)   -> (UnaryOp(loc, uop, e), TEint) 
     | NEG, _                -> report_expecting e "integer" t
-    | NOT, (TEbool|TEPoly)  -> (UnaryOp(loc, uop, e), TEbool) 
+    | NOT, (TEbool|TEpoly)  -> (UnaryOp(loc, uop, e), TEbool) 
     | NOT, _                -> report_expecting e "boolean" t
 
 let make_bop loc bop (e1, t1) (e2, t2) = 
     match bop, t1, t2 with 
-    | LT,  (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, bop, e2), TEbool)
-    | LT,  (TEint|TEPoly),  t                 -> report_expecting e2 "integer" t
+    | LT,  (TEint|TEpoly),  (TEint|TEpoly)    -> (Op(loc, e1, bop, e2), TEbool)
+    | LT,  (TEint|TEpoly),  t                 -> report_expecting e2 "integer" t
     | LT,  t,      _                          -> report_expecting e1 "integer" t
-    | ADD, (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, bop, e2), TEint) 
-    | ADD, (TEint|TEPoly),  t                 -> report_expecting e2 "integer" t
+    | ADD, (TEint|TEpoly),  (TEint|TEpoly)    -> (Op(loc, e1, bop, e2), TEint) 
+    | ADD, (TEint|TEpoly),  t                 -> report_expecting e2 "integer" t
     | ADD, t,      _                          -> report_expecting e1 "integer" t
-    | SUB, (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, bop, e2), TEint) 
-    | SUB, (TEint|TEPoly),  t                 -> report_expecting e2 "integer" t
+    | SUB, (TEint|TEpoly),  (TEint|TEpoly)    -> (Op(loc, e1, bop, e2), TEint) 
+    | SUB, (TEint|TEpoly),  t                 -> report_expecting e2 "integer" t
     | SUB, t,      _                          -> report_expecting e1 "integer" t
-    | MUL, (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, bop, e2), TEint) 
-    | MUL, (TEint|TEPoly),  t                 -> report_expecting e2 "integer" t
+    | MUL, (TEint|TEpoly),  (TEint|TEpoly)    -> (Op(loc, e1, bop, e2), TEint) 
+    | MUL, (TEint|TEpoly),  t                 -> report_expecting e2 "integer" t
     | MUL, t,      _                          -> report_expecting e1 "integer" t
-    | DIV, (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, bop, e2), TEint) 
-    | DIV, (TEint|TEPoly),  t                 -> report_expecting e2 "integer" t
+    | DIV, (TEint|TEpoly),  (TEint|TEpoly)    -> (Op(loc, e1, bop, e2), TEint) 
+    | DIV, (TEint|TEpoly),  t                 -> report_expecting e2 "integer" t
     | DIV, t,      _                          -> report_expecting e1 "integer" t
-    | OR,  (TEbool|TEPoly), (TEbool|TEPoly)   -> (Op(loc, e1, bop, e2), TEbool) 
-    | OR,  (TEbool|TEPoly),  t                -> report_expecting e2 "boolean" t
+    | OR,  (TEbool|TEpoly), (TEbool|TEpoly)   -> (Op(loc, e1, bop, e2), TEbool) 
+    | OR,  (TEbool|TEpoly),  t                -> report_expecting e2 "boolean" t
     | OR,  t,      _                          -> report_expecting e1 "boolean" t
-    | AND, (TEbool|TEPoly), (TEbool|TEPoly)   -> (Op(loc, e1, bop, e2), TEbool) 
-    | AND, (TEbool|TEPoly),  t                -> report_expecting e2 "boolean" t
+    | AND, (TEbool|TEpoly), (TEbool|TEpoly)   -> (Op(loc, e1, bop, e2), TEbool) 
+    | AND, (TEbool|TEpoly),  t                -> report_expecting e2 "boolean" t
     | AND, t,      _                          -> report_expecting e1 "boolean" t
-    | EQ,  TEPoly, TEPoly                     -> (Op(loc, e1, EQB, e2), TEPoly) 
-    | EQ,  (TEbool|TEPoly), (TEbool|TEPoly)   -> (Op(loc, e1, EQB, e2), TEbool) 
-    | EQ,  (TEint|TEPoly),  (TEint|TEPoly)    -> (Op(loc, e1, EQI, e2), TEbool)  
+    | EQ,  TEpoly, TEpoly                     -> (Op(loc, e1, EQB, e2), TEpoly) 
+    | EQ,  (TEbool|TEpoly), (TEbool|TEpoly)   -> (Op(loc, e1, EQB, e2), TEbool) 
+    | EQ,  (TEint|TEpoly),  (TEint|TEpoly)    -> (Op(loc, e1, EQI, e2), TEbool)  
     | EQ,  _,      _                          -> report_type_mismatch (e1, t1) (e2, t2) 
     | EQI, _, _                               -> internal_error "EQI found in parsed AST"
     | EQB, _, _                               -> internal_error "EQB found in parsed AST"
 
 let make_while loc (e1, t1) (e2, t2)    = 
-    if t1 = TEbool 
-    then if t2 = TEunit 
+    if match_types(t1, TEbool)
+    then if match_types(t2, TEunit) 
          then (While(loc, e1, e2), TEunit)
          else report_expecting e2 "unit type" t2
     else report_expecting e1 "boolean" t1
@@ -153,29 +168,34 @@ let make_assign loc (e1, t1) (e2, t2) =
     | TEref t -> if match_types(t, t2) 
                  then (Assign(loc, e1, e2), TEunit) 
                  else report_type_mismatch (e1, t) (e2, t2)
+    | TEpoly -> (Assign(loc, e1, e2), TEunit)
     | t -> report_expecting e1 "ref type" t 
 
 let make_case loc left right x1 x2 (e1, t1) (e2, t2) (e3, t3) = 
     match t1 with 
-    | TEunion(left', right') -> 
+    | TEunion(left', right') ->
       if match_types(left, left') 
       then if match_types(right, right')
            then if match_types(t3, t2)
-                then (Case(loc, e1, (x1, left, e2), (x2, right, e3)), t2)
+                then (Case(loc, e1, (x1, depoly_types (left, left'), e2), (x2, depoly_types (right, right'), e3)), depoly_types (t2, t3))
                 else report_type_mismatch (e2, t2) (e3, t3)
            else report_types_not_equal loc right right'
-      else report_types_not_equal loc left left' 
+      else report_types_not_equal loc left left'
+    | TEpoly -> 
+        if match_types(t3, t2)
+            then (Case(loc, e1, (x1, TEpoly, e2), (x2, TEpoly, e3)), depoly_types (t2, t3))
+            else report_type_mismatch (e2, t2) (e3, t3)
     | t -> report_expecting e1 "disjoint union" t
 
 let make_raise loc (e, t) catch = match catch with
     | Some ct ->
         if match_types(t, ct) 
-        then (Raise(loc, e), TEPoly)
+        then (Raise(loc, e), TEpoly)
         else report_raise_type_mismatch loc t ct 
     | None -> (Raise(loc, e), t)
 
 let make_try loc (e1, t1) x t (e2, t2) = 
-    if match_types (t1, t2) then (Try(loc, e1, x, t, e2), t1)
+    if match_types (t1, t2) then (Try(loc, e1, x, t, e2), depoly_types (t1, t2))
     else report_types_not_equal loc t1 t2 
 
 let rec  infer env catch e = 

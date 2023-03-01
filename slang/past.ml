@@ -8,7 +8,7 @@ type var = string
 type loc = Lexing.position 
 
 type type_expr = 
-   | TEPoly
+   | TEpoly
    | TEint
    | TEbool 
    | TEunit 
@@ -122,7 +122,7 @@ let rec pp_type = function
   | TEint -> "int" 
   | TEbool -> "bool" 
   | TEunit -> "unit" 
-  | TEPoly -> "any"
+  | TEpoly -> "any"
   | TEref t           -> "(" ^ (pp_type t) ^ " ref)"
   | TEarrow(t1, t2)   -> "(" ^ (pp_type t1) ^ " -> " ^ (pp_type t2) ^ ")" 
   | TEproduct(t1, t2) -> "(" ^ (pp_type t1) ^ " * " ^ (pp_type t2) ^ ")"  
@@ -253,7 +253,7 @@ let rec string_of_type = function
   | TEint             -> "TEint" 
   | TEbool            -> "TEbool" 
   | TEunit            -> "TEunit" 
-  | TEPoly           -> "TEPoly"
+  | TEpoly           -> "TEpoly"
   | TEref t           -> mk_con "TEref" [string_of_type t] 
   | TEarrow(t1, t2)   -> mk_con "TEarrow" [string_of_type t1; string_of_type t2] 
   | TEproduct(t1, t2) -> mk_con "TEproduct" [string_of_type t1; string_of_type t2] 

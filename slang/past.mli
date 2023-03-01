@@ -6,7 +6,7 @@ type var = string
 type loc = Lexing.position 
 
 type type_expr = 
-   | TEPoly
+   | TEpoly
    | TEint 
    | TEbool 
    | TEunit 

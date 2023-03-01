@@ -1,9 +1,9 @@
 try
-    raise try 
-        if true then raise 1 else 0 end
+    try 
+        if true then raise 0 else 1 end
     with ( x : int ) -> 
-        x + 11
+        raise x + 11
     end
 with ( x : int ) ->
-    x + 100
+    raise x + 100
 end

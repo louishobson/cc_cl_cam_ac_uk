@@ -11,15 +11,6 @@ type excpt_index = int
 type label = string 
 type location = label * (code_index option) 
 
-type status_code = 
-  | Halted 
-  | Running 
-  | CodeIndexOutOfBound 
-  | StackIndexOutOfBound 
-  | HeapIndexOutOfBound 
-  | StackUnderflow 
-  | UnhandledException
-
 type stack_item = 
   | STACK_INT of int 
   | STACK_BOOL of bool 
@@ -28,6 +19,15 @@ type stack_item =
   | STACK_RA of code_index    (* return address               *) 
   | STACK_FP of stack_index   (* Frame pointer                *) 
   | STACK_EP of stack_index   (* Exception pointer            *) 
+
+type status_code = 
+  | Halted 
+  | Running 
+  | CodeIndexOutOfBound 
+  | StackIndexOutOfBound 
+  | HeapIndexOutOfBound 
+  | StackUnderflow 
+  | UnhandledException of stack_item
 
 
 type heap_type = 
@@ -135,15 +135,6 @@ let stack_top vm = Array.get vm.stack (vm.sp - 1)
      | t :: rest -> (f t) ^  sep  ^ (aux f rest)
    in "[" ^ (aux f l) ^ "]" *)
 
-let string_of_status = function 
-  | Halted               -> "halted" 
-  | Running              -> "running" 
-  | CodeIndexOutOfBound  -> "code index out-of-bound" 
-  | StackIndexOutOfBound -> "stack index out-of-bound" 
-  | HeapIndexOutOfBound  -> "heap index out-of-bound" 
-  | StackUnderflow       -> "stack underflow" 
-  | UnhandledException   -> "unhandled exception"
-
 let string_of_stack_item = function 
   | STACK_INT i      -> "STACK_INT " ^ (string_of_int i)
   | STACK_BOOL true  -> "STACK_BOOL true"
@@ -153,6 +144,15 @@ let string_of_stack_item = function
   | STACK_RA i       -> "STACK_RA " ^ (string_of_int i)
   | STACK_FP i       -> "STACK_FP " ^ (string_of_int i)
   | STACK_EP i       -> "STACK_EP " ^ (string_of_int i)
+
+let string_of_status = function 
+  | Halted               -> "halted" 
+  | Running              -> "running" 
+  | CodeIndexOutOfBound  -> "code index out-of-bound" 
+  | StackIndexOutOfBound -> "stack index out-of-bound" 
+  | HeapIndexOutOfBound  -> "heap index out-of-bound" 
+  | StackUnderflow       -> "stack underflow" 
+  | UnhandledException v -> "unhandled exception: " ^ (string_of_stack_item v)
 
 let string_of_heap_type = function 
     | HT_PAIR    -> "HT_PAIR"
@@ -541,12 +541,14 @@ let do_untry vm =
   | _ -> Errors.complain "untry : internal error, try block corruption!"
 
 let do_raise vm =
-    match vm.stack.(vm.ep), vm.stack.(vm.ep + 1), vm.stack.(vm.ep + 2) with 
-    | (STACK_EP saved_ep, STACK_FP saved_fp, STACK_RA catch_index) -> 
-      let excpt_value = stack_top vm in
-      let current_ep = vm.ep in
-      push( excpt_value, { vm with cp = catch_index; fp = saved_fp; ep = saved_ep; sp = current_ep } )
-    | _ -> Errors.complain "raise : internal error, try block corruption!"
+    if vm.ep > 0 then
+      match vm.stack.(vm.ep), vm.stack.(vm.ep + 1), vm.stack.(vm.ep + 2) with 
+      | (STACK_EP saved_ep, STACK_FP saved_fp, STACK_RA catch_index) -> 
+        let excpt_value = stack_top vm in
+        let current_ep = vm.ep in
+        push( excpt_value, { vm with cp = catch_index; fp = saved_fp; ep = saved_ep; sp = current_ep } )
+      | _ -> Errors.complain "raise : internal error, try block corruption!"
+    else { vm with status = UnhandledException (stack_top vm) }
 
 
 let step vm =

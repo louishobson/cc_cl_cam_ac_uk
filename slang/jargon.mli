@@ -9,15 +9,6 @@ type excpt_index = int
 type label = string 
 type location = label * (code_index option) 
 
-type status_code = 
-  | Halted 
-  | Running 
-  | CodeIndexOutOfBound 
-  | StackIndexOutOfBound 
-  | HeapIndexOutOfBound
-  | StackUnderflow 
-  | UnhandledException
-
 type stack_item = 
   | STACK_INT of int 
   | STACK_BOOL of bool 
@@ -26,6 +17,15 @@ type stack_item =
   | STACK_RA of code_index    (* return address               *) 
   | STACK_FP of stack_index   (* Frame pointer                *) 
   | STACK_EP of stack_index   (* Exception pointer            *) 
+
+type status_code = 
+  | Halted 
+  | Running 
+  | CodeIndexOutOfBound 
+  | StackIndexOutOfBound 
+  | HeapIndexOutOfBound
+  | StackUnderflow 
+  | UnhandledException of stack_item
 
 type heap_type = 
     | HT_PAIR 

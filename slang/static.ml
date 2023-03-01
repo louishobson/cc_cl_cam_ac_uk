@@ -192,7 +192,7 @@ let make_raise loc (e, t) catch = match catch with
         if match_types(t, ct) 
         then (Raise(loc, e), TEpoly)
         else report_raise_type_mismatch loc t ct 
-    | None -> (Raise(loc, e), t)
+    | None -> (Raise(loc, e), TEpoly)
 
 let make_try loc (e1, t1) x t (e2, t2) = 
     if match_types (t1, t2) then (Try(loc, e1, x, t, e2), depoly_types (t1, t2))

@@ -31,6 +31,9 @@ type 'a expr =
        | LetFun of 'a * var * 'a lambda * 'a expr
        | LetRecFun of 'a * var * 'a lambda * 'a expr
 
+       | Raise of 'a * 'a expr
+       | Try of 'a * 'a expr * 'a lambda
+
 and 'a lambda = 'a * Past.var * 'a expr
 
 (* printing *) 

@@ -75,6 +75,9 @@ let rec translate_expr = function
     | Past.Deref(l, e) -> Ast.Deref(l, translate_expr e)
     | Past.Assign(l, e1, e2) -> Ast.Assign(l, translate_expr e1, translate_expr e2)
 
+    | Past.Raise(l, e) -> Ast.Raise(l, translate_expr e)
+    | Past.Try(l, e1, x, _, e2) -> Ast.Try(l, translate_expr e1, (l, x, translate_expr e2))
+
 and translate_lambda l (x, _, body) = (l, x, translate_expr body)
 
 (* This function takes a Past.TupleLambda and converts it to a an Ast.Lambda *)

@@ -4,6 +4,7 @@ type stack_index = int
 type heap_index = int 
 type static_distance = int 
 type offset  = int 
+type excpt_index = int
 
 type label = string 
 type location = label * (code_index option) 
@@ -15,6 +16,7 @@ type status_code =
   | StackIndexOutOfBound 
   | HeapIndexOutOfBound
   | StackUnderflow 
+  | UnhandledException
 
 type stack_item = 
   | STACK_INT of int 
@@ -23,6 +25,7 @@ type stack_item =
   | STACK_HI of heap_index    (* Pointer into Heap            *) 
   | STACK_RA of code_index    (* return address               *) 
   | STACK_FP of stack_index   (* Frame pointer                *) 
+  | STACK_EP of stack_index   (* Exception pointer            *) 
 
 type heap_type = 
     | HT_PAIR 
@@ -66,6 +69,9 @@ type 'a instruction =
   | GOTO of 'a * location
   | LABEL of 'a * label
   | HALT of 'a
+  | TRY of 'a * location (* Location for try to jump to on failure *)
+  | UNTRY of 'a
+  | RAISE of 'a
 
 type vm_state = 
   {
@@ -79,6 +85,7 @@ type vm_state =
     mutable fp : stack_index;  (* frame pointer *) 
     mutable cp : code_index;   (* code pointer  *) 
     mutable hp : heap_index;   (* next free     *) 
+    mutable ep : stack_index;  (* exception pointer *)
     mutable status : status_code; 
   } 
 

@@ -11,7 +11,7 @@ let get_loc = Parsing.symbol_start_pos
 %token<int> INT
 %token<string> IDENT
 %token EOF LPAREN RPAREN COMMA COLON SEMICOLON ADD SUB MUL DIV NOT EQUAL LT ANDOP OROP 
-%token WHAT UNIT AND TRUE FALSE IF FI THEN ELSE LET REC IN BEGIN END BOOL INTTYPE UNITTYPE 
+%token WHAT UNIT AND TRUE FALSE IF FI THEN ELSE LET REC IN BEGIN END BOOL INTTYPE UNITTYPE RAISE TRY WITH
 %token ARROW BAR INL INR FST SND FUN NUF CASE OF REF ASSIGN BANG WHILE DO OD 
 
 %left ADD SUB                     /* lowest precedence */
@@ -95,6 +95,10 @@ expr:
   BAR INR LPAREN IDENT COLON texpr RPAREN  ARROW expr 
   END 
                                      { Past.Case (get_loc(), $2, ($6, $8, $11), ($15, $17, $20)) }
+
+| RAISE expr                        { Past.Raise (get_loc(), $2) }
+| TRY expr WITH LPAREN IDENT COLON texpr RPAREN ARROW expr END
+                                    { Past.Try (get_loc(), $2, $5, $7, $10) }
 
 exprlist:
 |   expr                             { [$1] }

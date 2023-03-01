@@ -6,6 +6,7 @@ type stack_index = int
 type heap_index = int 
 type static_distance = int 
 type offset  = int 
+type excpt_index = int
 
 type label = string 
 type location = label * (code_index option) 
@@ -17,6 +18,7 @@ type status_code =
   | StackIndexOutOfBound 
   | HeapIndexOutOfBound 
   | StackUnderflow 
+  | UnhandledException
 
 type stack_item = 
   | STACK_INT of int 
@@ -25,6 +27,7 @@ type stack_item =
   | STACK_HI of heap_index    (* Pointer into Heap            *) 
   | STACK_RA of code_index    (* return address               *) 
   | STACK_FP of stack_index   (* Frame pointer                *) 
+  | STACK_EP of stack_index   (* Exception pointer            *) 
 
 
 type heap_type = 
@@ -70,6 +73,9 @@ type 'a instruction =
   | GOTO of 'a * location
   | LABEL of 'a * label
   | HALT of 'a
+  | TRY of 'a * location (* Location for try to jump to on failure *)
+  | UNTRY of 'a
+  | RAISE of 'a
 
 let map f = function
   | PUSH(a, stack_item) -> PUSH(f a, stack_item) 
@@ -94,6 +100,9 @@ let map f = function
   | GOTO(a, location) -> GOTO(f a, location) 
   | LABEL(a, label) -> LABEL(f a, label) 
   | HALT a  -> HALT (f a)  
+  | TRY(a, location) -> TRY(f a, location)
+  | UNTRY a -> UNTRY (f a)
+  | RAISE a -> RAISE (f a)
 
 type 'a listing = 'a instruction list
 
@@ -109,6 +118,7 @@ type vm_state =
     mutable fp : stack_index;  (* frame pointer *) 
     mutable cp : code_index;   (* code pointer  *) 
     mutable hp : heap_index;   (* next free     *) 
+    mutable ep : stack_index;  (* exception pointer *)
     mutable status : status_code; 
   } 
 
@@ -132,6 +142,7 @@ let string_of_status = function
   | StackIndexOutOfBound -> "stack index out-of-bound" 
   | HeapIndexOutOfBound  -> "heap index out-of-bound" 
   | StackUnderflow       -> "stack underflow" 
+  | UnhandledException   -> "unhandled exception"
 
 let string_of_stack_item = function 
   | STACK_INT i      -> "STACK_INT " ^ (string_of_int i)
@@ -141,6 +152,7 @@ let string_of_stack_item = function
   | STACK_HI i       -> "STACK_HI " ^ (string_of_int i)
   | STACK_RA i       -> "STACK_RA " ^ (string_of_int i)
   | STACK_FP i       -> "STACK_FP " ^ (string_of_int i)
+  | STACK_EP i       -> "STACK_EP " ^ (string_of_int i)
 
 let string_of_heap_type = function 
     | HT_PAIR    -> "HT_PAIR"
@@ -192,6 +204,10 @@ let string_of_instruction = function
  | MK_CLOSURE (_, loc, n)
              -> "MK_CLOSURE(" ^ (string_of_location loc) 
 	                      ^ ", " ^ (string_of_int n) ^ ")"
+ | RAISE _    -> "RAISE"
+ | TRY(_, l)  -> "TRY " ^ (string_of_location l)
+ | UNTRY _    -> "UNTRY"
+
 let rec string_of_listing = function 
   | [] -> "\n"  
   | (LABEL(_, l)) :: rest -> ("\n" ^ l ^ " :") ^ (string_of_listing rest)
@@ -226,6 +242,7 @@ let string_of_state vm =
         "cp = " ^ (string_of_int vm.cp) ^ " -> " 
       ^ (string_of_instruction (get_instruction vm)) ^ "\n"
       ^ "fp = " ^ (string_of_int vm.fp) ^ "\n"
+      ^ "ep = " ^ (string_of_int vm.ep) ^ "\n"
       ^ "Stack = \n" ^(string_of_stack(vm.sp, vm.stack)) 
       ^ (if vm.hp = 0 then "" else string_of_heap vm) 
 
@@ -258,6 +275,7 @@ let string_of_value vm =
   | STACK_HI a       -> string_of_heap_value a vm
   | STACK_RA _       -> Errors.complain "string_of_value: expecting value on stack top, found code index"
   | STACK_FP _       -> Errors.complain "string_of_value: expecting value on stack top, found frame pointer"
+  | STACK_EP _       -> Errors.complain "string_of_value: expecting value on stack top, found exception pointer"
 
     
 
@@ -273,6 +291,7 @@ let stack_to_heap_item = function
   | STACK_HI i -> HEAP_HI i 
   | STACK_RA i -> HEAP_CI i 
   | STACK_FP _ -> Errors.complain "stack_to_heap_item: no frame pointer allowed on heap" 
+  | STACK_EP _ -> Errors.complain "stack_to_heap_item: no exception pointer allowed on heap" 
 
 let heap_to_stack_item = function 
   | HEAP_INT i -> STACK_INT i
@@ -498,6 +517,38 @@ let apply vm =
     | _ -> Errors.complain "apply: runtime error, expecting heap index on top of stack" 
 
 
+let do_try = function 
+  | ((_, Some i), vm) ->
+    let saved_fp = STACK_FP vm.fp
+    in let catch_index = STACK_RA i
+    in let new_ep = vm.sp
+    in let saved_ep = STACK_EP vm.ep
+    in let new_vm = { vm with ep = new_ep; }
+    in push(catch_index, push(saved_fp, push(saved_ep, new_vm)))
+  | ((_, None), _) -> Errors.complain "try : internal error, no address of catch in try!"
+
+let do_untry vm =
+  let (return_value, vm1) = pop_top vm in
+  let (_, vm2) = pop_top vm1 in
+  let (fp, vm3) = pop_top vm2 in
+  let (ep, vm4) = pop_top vm3 in
+  match fp, ep with
+  | (STACK_FP saved_fp, STACK_EP saved_ep) ->
+    if saved_fp = vm4.fp
+      then let new_vm = { vm4 with ep = saved_ep }
+      in push(return_value, new_vm)
+    else Errors.complain "untry : internal error, fame pointer mismatch!"
+  | _ -> Errors.complain "untry : internal error, try block corruption!"
+
+let do_raise vm =
+    match vm.stack.(vm.ep), vm.stack.(vm.ep + 1), vm.stack.(vm.ep + 2) with 
+    | (STACK_EP saved_ep, STACK_FP saved_fp, STACK_RA catch_index) -> 
+      let excpt_value = stack_top vm in
+      let current_ep = vm.ep in
+      push( excpt_value, { vm with cp = catch_index; fp = saved_fp; ep = saved_ep; sp = current_ep } )
+    | _ -> Errors.complain "raise : internal error, try block corruption!"
+
+
 let step vm =
  match get_instruction vm with
   | UNARY(_, op)          -> advance_cp (perform_unary(op, vm))
@@ -524,6 +575,9 @@ let step vm =
   | GOTO (_, (_, Some i))  -> goto(i, vm)
   | TEST (_, (_, Some i))  -> test(i, vm)
   | CASE (_, (_, Some i))  -> case(i, vm)
+  | TRY (_, l) -> advance_cp (do_try(l, vm))
+  | UNTRY _ -> advance_cp (do_untry vm)
+  | RAISE _ -> (do_raise vm)
 
   | _ -> Errors.complain ("step : bad state = " ^ (string_of_state vm) ^ "\n")
 
@@ -542,6 +596,7 @@ let map_instruction_labels f = function
      | TEST (l, (lab, _)) -> TEST(l, (lab, Some(f lab)))
      | CASE (l, (lab, _)) -> CASE(l, (lab, Some(f lab)))
      | MK_CLOSURE (l, ((lab, _)), n) -> MK_CLOSURE((l, (lab, Some(f lab)), n))
+     | TRY(l, (lab, _)) -> TRY(l, (lab, Some(f lab)))
      | inst -> inst 
 
 let rec find l y = 
@@ -580,7 +635,8 @@ let initial_state l =
     sp = 0; 
     fp = 0; 
     cp = 0; 
-    hp = 0; 
+    hp = 0;
+    ep = 0; 
     status = Running; 
   } 
 
@@ -713,6 +769,19 @@ let rec comp vmap = function
                       let (defs1, c1) = comp vmap (Lambda(l, f, e2)) in
                       let (defs2, c2) = comp_lambda vmap (l', Some f, x, e1) in
                           (defs1 @ defs2, c2 @ c1 @ [APPLY l])
+  | Raise(l, e) -> let (defs, c) = comp vmap e in (defs, c @ [RAISE l])
+  | Try(l, e, (l', x, e')) ->
+                      let end_label = new_label () in
+                      let catch_label = new_label () in
+                      let (defs1, c1) = comp vmap e in
+                      let (defs2, c2) = comp vmap (Lambda(l', x, e')) in
+                          (defs1 @ defs2, 
+                            [TRY(l, (catch_label, None))] 
+                            @ c1 
+                            @ [UNTRY l; GOTO(l, (end_label, None)); LABEL(l, catch_label)]
+                            @ c2
+                            @ [APPLY l; LABEL(l, end_label)])
+
 
 and comp_lambda vmap (l, f_opt, x, e) =
     let bound_vars = match f_opt with | None -> [x]          | Some f -> [x; f] in

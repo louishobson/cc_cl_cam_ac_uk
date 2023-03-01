@@ -54,6 +54,9 @@ type expr =
        | LetRecFun of loc * var * lambda * type_expr * expr
        | LetRecTupleFun of loc * var * tuple_lambda * type_expr * expr
 
+       | Raise of loc * expr
+       | Try of loc * expr * var * type_expr * expr
+
 and lambda = var * type_expr * expr 
 and tuple_lambda = nested_binding * expr
 val loc_of_expr : expr -> loc 

@@ -56,6 +56,9 @@ type expr =
        | LetRecFun of loc * var * lambda * type_expr * expr
        | LetRecTupleFun of loc * var * tuple_lambda * type_expr * expr
 
+       | Raise of loc * expr
+       | Try of loc * expr * var * type_expr * expr
+
 and lambda = var * type_expr * expr 
 and tuple_lambda = nested_binding * expr
 
@@ -88,6 +91,8 @@ let  loc_of_expr = function
     | LetTupleFun(loc, _, _, _, _)  -> loc 
     | LetRecFun(loc, _, _, _, _)    -> loc 
     | LetRecTupleFun(loc, _, _, _, _)  -> loc 
+    | Raise(loc, _)                 -> loc
+    | Try(loc, _, _, _, _)          -> loc
 
 
 let string_of_loc loc = 
@@ -202,6 +207,10 @@ let rec pp_expr ppf = function
     | LetRecTupleFun(_, f, (nb, e1), t2, e2)     -> 
     fprintf ppf "@[letrec %a %a : %a =@ %a @ in %a @ end@]" 
                 fstring f pp_nested_binding nb pp_type t2 pp_expr e1 pp_expr e2
+    | Raise(_, e) ->
+        fprintf ppf "raise %a" pp_expr e
+    | Try(_, e1, x, t, e2) ->
+      fprintf ppf "try %a with %a : %a -> %a" pp_expr e1 fstring x pp_type t pp_expr e2
       
 
 let print_expr e = 
@@ -306,6 +315,9 @@ let rec string_of_expr = function
 	     string_of_expr e; 
 	     mk_con "" [x1; string_of_type t1; string_of_expr e1]; 
 	     mk_con "" [x2; string_of_type t1; string_of_expr e2]]
+       
+    | Raise(_, e) -> mk_con "Raise" [string_of_expr e]
+    | Try(_, e1, x, t, e2) -> mk_con "Try" [string_of_expr e1; x; string_of_type t; string_of_expr e2]
 
 and string_of_expr_list = function 
   | [] -> "" 

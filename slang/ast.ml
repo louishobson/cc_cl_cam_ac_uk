@@ -28,6 +28,8 @@ type 'a expr =
        | App of 'a * 'a expr * 'a expr
        | LetFun of 'a * var * 'a lambda * 'a expr
        | LetRecFun of 'a * var * 'a lambda * 'a expr
+       | Raise of 'a * 'a expr
+       | Try of 'a * 'a expr * 'a lambda
 
 and 'a lambda = 'a * var * 'a expr
 
@@ -99,6 +101,11 @@ let rec pp_expr ppf = function
     | LetRecFun(_, f, (_, x, e1), e2)  ->
          fprintf ppf "@[letrec %a(%a) =@ %a @ in %a @ end@]"
                      fstring f fstring x  pp_expr e1 pp_expr e2
+    | Raise(_, e) ->
+        fprintf ppf "raise %a" pp_expr e
+    | Try(_, e1, (_, x, e2)) ->
+        fprintf ppf "try %a with %a -> %a" pp_expr e1 fstring x pp_expr e2
+
 and pp_expr_list ppf = function 
   | [] -> () 
   | [e] -> pp_expr ppf e 
@@ -169,6 +176,8 @@ let rec string_of_expr = function
               string_of_expr e; 
 	      mk_con "" [x1; string_of_expr e1]; 
 	      mk_con "" [x2; string_of_expr e2]]
+    | Raise(_, e) -> mk_con "Raise" [string_of_expr e]
+    | Try(_, e1, (_, x, e2)) -> mk_con "Try" [string_of_expr e1; x; string_of_expr e2]
 
 and string_of_expr_list = function 
   | [] -> "" 
@@ -201,6 +210,8 @@ let rec map f = function
       LetRecFun(f a, f', (f a', x, map f e1), map f e2)
 | Case(a, e, (a', x1, e1), (a'', x2, e2)) ->
       Case(f a, map f e, (f a', x1, map f e1), (f a'', x2, map f e2))
+| Raise(a, e)            -> Raise(f a, map f e)
+| Try(a1, e1, (a2, x, e2)) -> Try( f a1, map f e1, (f a2, x, map f e2))
 
 let get_tag = function
 | Unit a            -> a
@@ -225,3 +236,5 @@ let get_tag = function
 | LetFun(a, _, _, _)      -> a
 | LetRecFun(a, _, _, _)   -> a
 | Case(a, _, _, _) -> a
+| Raise(a, _) -> a
+| Try(a, _, _) -> a

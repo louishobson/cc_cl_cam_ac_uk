@@ -155,6 +155,11 @@ let make_case loc left right x1 x2 (e1, t1) (e2, t2) (e3, t3) =
       else report_types_not_equal loc left left' 
     | t -> report_expecting e1 "disjoint union" t
 
+let make_raise loc (e, t) = (Raise(loc, e), t)
+
+let make_try loc (e1, t1) x t (e2, t2) = 
+    if match_types (t1, t2) then (Try(loc, e1, x, t, e2), t1)
+    else report_types_not_equal loc t1 t2 
 
 let rec  infer env e = 
     match e with 
@@ -202,6 +207,9 @@ let rec  infer env e =
             )
     | LetRecFun(_, _, _, _, _)  -> internal_error "LetRecFun found in parsed AST" 
     | LetRecTupleFun(_, _, _, _, _)  -> internal_error "LetRecTupleFun found in parsed AST" 
+
+    | Raise(loc, e) -> make_raise loc (infer env e)
+    | Try(loc, e1, x, t, e2)  -> make_try loc (infer env e1) x t (infer ((x, t) :: env) e2) 
 
 and infer_seq loc env el = 
     let rec aux carry = function 

@@ -13,6 +13,14 @@ let report_expecting e msg t =
 	      loc_str ^ "\nExpression " ^ e_str ^ 
 	      "\nhas type " ^ t_str ^ ", but expecting " ^ msg) 
 
+let report_raise_type_mismatch loc t ct =
+    let loc_str = string_of_loc loc in 
+    let t_str = string_of_type t in 
+    let ct_str = string_of_type ct in 
+    complain ("ERROR at location " ^ 
+        loc_str ^ "\nRaise type " ^ t_str ^ 
+        " does not match the enclosing catch type " ^ ct_str)
+
 let report_types_not_equal loc t1 t2 = 
     let loc_str = string_of_loc loc in 
     let t1_str = string_of_type t1 in 
@@ -155,72 +163,78 @@ let make_case loc left right x1 x2 (e1, t1) (e2, t2) (e3, t3) =
       else report_types_not_equal loc left left' 
     | t -> report_expecting e1 "disjoint union" t
 
-let make_raise loc (e, t) = (Raise(loc, e), t)
+let make_raise loc (e, t) catch = match catch with
+    | Some ct ->
+        if match_types(t, ct) 
+        then (Raise(loc, e), t)
+        else report_raise_type_mismatch loc t ct 
+    | None -> (Raise(loc, e), t)
 
 let make_try loc (e1, t1) x t (e2, t2) = 
     if match_types (t1, t2) then (Try(loc, e1, x, t, e2), t1)
     else report_types_not_equal loc t1 t2 
 
-let rec  infer env e = 
+let rec  infer env catch e = 
     match e with 
     | Unit _               -> (e, TEunit)
     | What _               -> (e, TEint) 
     | Integer _            -> (e, TEint) 
     | Boolean _            -> (e, TEbool)
     | Var (loc, x)         -> (e, find loc x env)
-    | Seq(loc, el)         -> infer_seq loc env el 
-    | While(loc, e1, e2)   -> make_while loc (infer env e1) (infer env e2) 
-    | Ref(loc, e)          -> make_ref loc (infer env e) 
-    | Deref(loc, e)        -> make_deref loc (infer env e) 
-    | Assign(loc, e1, e2)  -> make_assign loc (infer env e1) (infer env e2) 
-    | UnaryOp(loc, uop, e) -> make_uop loc uop (infer env e) 
-    | Op(loc, e1, bop, e2) -> make_bop loc bop (infer env e1) (infer env e2) 
-    | If(loc, e1, e2, e3)  -> make_if loc (infer env e1) (infer env e2) (infer env e3)          
-    | Pair(loc, e1, e2)    -> make_pair loc (infer env e1) (infer env e2) 
-    | Fst(loc, e)          -> make_fst loc (infer env e)
-    | Snd (loc, e)         -> make_snd loc (infer env e)
-    | Inl (loc, t, e)      -> make_inl loc t (infer env e)
-    | Inr (loc, t, e)      -> make_inr loc t (infer env e) 
+    | Seq(loc, el)         -> infer_seq loc env catch el 
+    | While(loc, e1, e2)   -> make_while loc (infer env catch e1) (infer env catch e2) 
+    | Ref(loc, e)          -> make_ref loc (infer env catch e) 
+    | Deref(loc, e)        -> make_deref loc (infer env catch e) 
+    | Assign(loc, e1, e2)  -> make_assign loc (infer env catch e1) (infer env catch e2) 
+    | UnaryOp(loc, uop, e) -> make_uop loc uop (infer env catch e) 
+    | Op(loc, e1, bop, e2) -> make_bop loc bop (infer env catch e1) (infer env catch e2) 
+    | If(loc, e1, e2, e3)  -> make_if loc (infer env catch e1) (infer env catch e2) (infer env catch e3)          
+    | Pair(loc, e1, e2)    -> make_pair loc (infer env catch e1) (infer env catch e2) 
+    | Fst(loc, e)          -> make_fst loc (infer env catch e)
+    | Snd (loc, e)         -> make_snd loc (infer env catch e)
+    | Inl (loc, t, e)      -> make_inl loc t (infer env catch e)
+    | Inr (loc, t, e)      -> make_inr loc t (infer env catch e) 
     | Case(loc, e, (x1, t1, e1), (x2, t2, e2)) ->  
-            make_case loc t1 t2 x1 x2 (infer env e) (infer ((x1, t1) :: env) e1) (infer ((x2, t2) :: env) e2)
-    | Lambda (loc, (x, t, e)) -> make_lambda loc x t (infer ((x, t) :: env) e)
-    | TupleLambda (loc, (nb, e)) -> make_tuple_lambda loc nb (infer ((vars_of_nested_binding nb) @ env) e)
-    | App(loc, e1, e2)        -> make_app loc (infer env e1) (infer env e2)
-    | Let(loc, x, t, e1, e2)  -> make_let loc x t (infer env e1) (infer ((x, t) :: env) e2) 
-    | LetTuple(loc, nb, e1, e2)  -> make_lettuple loc nb (infer env e1) (infer ((vars_of_nested_binding nb) @ env) e2) 
+            make_case loc t1 t2 x1 x2 (infer env catch e) (infer ((x1, t1) :: env) catch e1) (infer ((x2, t2) :: env) catch e2)
+    | Lambda (loc, (x, t, e)) -> make_lambda loc x t (infer ((x, t) :: env) catch e)
+    | TupleLambda (loc, (nb, e)) -> make_tuple_lambda loc nb (infer ((vars_of_nested_binding nb) @ env) catch e)
+    | App(loc, e1, e2)        -> make_app loc (infer env catch e1) (infer env catch e2)
+    | Let(loc, x, t, e1, e2)  -> make_let loc x t (infer env catch e1) (infer ((x, t) :: env) catch e2) 
+    | LetTuple(loc, nb, e1, e2)  -> make_lettuple loc nb (infer env catch e1) (infer ((vars_of_nested_binding nb) @ env) catch e2) 
     | LetFun(loc, f, (x, t1, body), t2, e) -> 
       let env1 = (f, TEarrow(t1, t2)) :: env in 
-      let p = infer env1 e  in 
+      let p = infer env1 catch e  in 
       let env2 = (x, t1) :: env in 
-         (try make_letfun loc f x t1 (infer env2 body) p 
+         (try make_letfun loc f x t1 (infer env2 catch body) p 
           with _ -> let env3 = (f, TEarrow(t1, t2)) :: env2 in 
-                        make_letrecfun loc f x t1 (infer env3 body) p 
+                        make_letrecfun loc f x t1 (infer env3 catch body) p 
          )
     | LetTupleFun(loc, f, (nb, body), t2, e) -> 
         let t1 = type_of_nested_binding nb in
         let env1 = (f, TEarrow(t1, t2)) :: env in 
-        let p = infer env1 e  in 
+        let p = infer env1 catch e  in 
         let env2 = (vars_of_nested_binding nb) @ env in 
-            (try make_lettuplefun loc f nb (infer env2 body) p 
+            (try make_lettuplefun loc f nb (infer env2 catch body) p 
                 with _ -> let env3 = (f, TEarrow(t1, t2)) :: env2 in 
-                            make_letrectuplefun loc f nb (infer env3 body) p 
+                            make_letrectuplefun loc f nb (infer env3 catch body) p 
             )
     | LetRecFun(_, _, _, _, _)  -> internal_error "LetRecFun found in parsed AST" 
     | LetRecTupleFun(_, _, _, _, _)  -> internal_error "LetRecTupleFun found in parsed AST" 
 
-    | Raise(loc, e) -> make_raise loc (infer env e)
-    | Try(loc, e1, x, t, e2)  -> make_try loc (infer env e1) x t (infer ((x, t) :: env) e2) 
+    | Raise(loc, e) -> make_raise loc (infer env catch e) catch
+    | Try(loc, e1, x, t, e2)  -> make_try loc (infer env (Some t) e1) x t (infer ((x, t) :: env) catch e2) 
 
-and infer_seq loc env el = 
+and infer_seq loc env catch el = 
     let rec aux carry = function 
       | []        -> internal_error "empty sequence found in parsed AST" 
-      | [e]       -> let (e', t) = infer env e in (Seq(loc, List.rev (e' :: carry )), t)
-      | e :: rest -> let (e', _) = infer env e in aux (e' :: carry) rest 
+      | [e]       -> let (e', t) = infer env catch e in (Seq(loc, List.rev (e' :: carry )), t)
+      | e :: rest -> let (e', _) = infer env catch e in aux (e' :: carry) rest 
     in aux [] el 
        
-let env_init = [] 
+let env_init = []
+let catch_init = None
 
 let check e = 
-    let (e', _) = infer env_init e 
+    let (e', _) = infer env_init catch_init e 
     in e' 
 
